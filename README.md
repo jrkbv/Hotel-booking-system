@@ -44,6 +44,6 @@
 
 ## UML диаграмма
 
-![UML diagram](uml.png)
+![UML diagram](uml2.png)
 
 
