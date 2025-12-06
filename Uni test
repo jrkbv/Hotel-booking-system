@@ -1,0 +1,93 @@
+import unittest
+from datetime import date, timedelta
+
+# Импортируем классы из вашего основного файла (hotel.py)
+from hotel import (
+    Hotel, 
+    RoomStatus, 
+    BookingStatus, 
+    RoomNotFoundError, 
+    GuestNotFoundError
+)
+
+class TestHotelSystem(unittest.TestCase):
+    def setUp(self):
+        """
+        Этот метод запускается ПЕРЕД каждым тестом.
+        Мы создаем новый отель и базовые данные, чтобы тесты не зависели друг от друга.
+        """
+        self.hotel = Hotel("Test Hotel")
+        
+        # Добавляем тестовую комнату
+        self.room = self.hotel.add_room(101, "Single", 100.0)
+        
+        # Регистрируем тестового гостя
+        self.guest = self.hotel.register_guest("John Doe", "555-0199")
+        
+        # Удобные даты для тестов
+        self.today = date(2025, 6, 1)
+        self.tomorrow = date(2025, 6, 2)
+        self.day_after = date(2025, 6, 3)
+
+    def test_add_duplicate_room(self):
+        """Нельзя добавить комнату с уже существующим номером."""
+        with self.assertRaises(ValueError):
+            self.hotel.add_room(101, "Double", 200.0)
+
+    def test_get_nonexistent_room(self):
+        """Попытка получить несуществующую комнату должна вызывать ошибку."""
+        with self.assertRaises(RoomNotFoundError):
+            self.hotel.get_room(999)
+
+    def test_booking_flow(self):
+        """
+        Проверка полного сценария:
+        Бронь -> Заселение -> Выселение -> Расчет цены -> Освобождение номера
+        """
+        # 1. Создаем бронь
+        booking = self.hotel.create_booking(self.guest.guest_id, self.room.number, self.today, self.tomorrow)
+        self.assertEqual(booking.status, BookingStatus.BOOKED)
+        self.assertFalse(self.room.is_occupied, "Комната не должна быть занята до заселения")
+        
+        # 2. Заселяем (Check-in)
+        self.hotel.check_in(booking.id, self.today)
+        self.assertEqual(booking.status, BookingStatus.CHECKED_IN)
+        self.assertTrue(self.room.is_occupied, "Комната должна стать занятой после check-in")
+        
+        # 3. Выселяем (Check-out)
+        cost = self.hotel.check_out(booking.id, self.tomorrow)
+        
+        # Проверки после выселения
+        self.assertEqual(cost, 100.0, "Цена должна быть за 1 ночь")
+        self.assertEqual(booking.status, BookingStatus.CHECKED_OUT)
+        self.assertFalse(self.room.is_occupied, "Комната должна освободиться")
+        self.assertEqual(self.room.status, RoomStatus.AVAILABLE)
+
+    def test_booking_overlap(self):
+        """Система не должна позволять бронировать занятые даты."""
+        # Бронируем с 1-го по 3-е число
+        self.hotel.create_booking(self.guest.guest_id, self.room.number, self.today, self.day_after)
+        
+        # Пытаемся забронировать с 2-го по 4-е (пересекается в середине)
+        with self.assertRaisesRegex(ValueError, "already booked"):
+            self.hotel.create_booking(
+                self.guest.guest_id, 
+                self.room.number, 
+                self.today + timedelta(days=1), 
+                self.day_after + timedelta(days=1)
+            )
+
+    def test_invalid_dates(self):
+        """Дата выезда не может быть раньше даты заезда."""
+        with self.assertRaises(ValueError):
+            self.hotel.create_booking(self.guest.guest_id, self.room.number, self.tomorrow, self.today)
+
+    def test_delete_guest_with_bookings(self):
+        """Нельзя удалить гостя, у которого есть активная бронь."""
+        self.hotel.create_booking(self.guest.guest_id, self.room.number, self.today, self.tomorrow)
+        
+        with self.assertRaisesRegex(ValueError, "Active bookings"):
+            self.hotel.delete_guest(self.guest.guest_id)
+
+if __name__ == '__main__':
+    unittest.main()
